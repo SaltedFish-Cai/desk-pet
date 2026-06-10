@@ -1,6 +1,5 @@
-import { Application, Assets } from "pixi.js";
+import { Application } from "pixi.js";
 import { Pet } from "./pet";
-import petImage from "@/assets/pet.png";
 
 export async function createRenderer(canvas: HTMLCanvasElement): Promise<{
   app: Application;
@@ -16,9 +15,11 @@ export async function createRenderer(canvas: HTMLCanvasElement): Promise<{
     autoDensity: true,
   });
 
-  const texture = await Assets.load(petImage);
-  const pet = new Pet(texture, "小宠");
-  pet.setSpriteScale(0.12);
+  // The stage needs to be event-enabled so the pet can receive pointerdown.
+  app.stage.eventMode = "static";
+
+  const pet = new Pet("");
+  pet.setSpriteScale(0.4);
   pet.x = app.screen.width / 2;
   pet.y = app.screen.height / 2;
   app.stage.addChild(pet);

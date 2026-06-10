@@ -1,0 +1,6 @@
+ffmpeg -i "/Users/caiqi/Project/desk-pet/src/assets/pet2.mov" -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 2M "/Users/caiqi/Project/desk-pet/src/assets/pet.webm"
+
+
+ffmpeg -i "/Users/caiqi/Project/desk-pet/src/assets/pet.mov" -vf "chromakey=0xeb0545:0.01:0.05" -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 2M "/Users/caiqi/Project/desk-pet/src/assets/pet3.webm"
+
+pngquant --quality=65-80 --speed 1 src/assets/4.png --output src/assets/pet4.png

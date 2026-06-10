@@ -12,7 +12,7 @@ export interface PetState {
 }
 
 const state = reactive<PetState>({
-  name: "小宠",
+  name: "",
   animationState: "idle",
   x: 150,
   y: 300,

@@ -19,7 +19,7 @@ export async function createRenderer(canvas: HTMLCanvasElement): Promise<{
   app.stage.eventMode = "static";
 
   const pet = new Pet("");
-  pet.setSpriteScale(0.4);
+  pet.setSpriteScale(0.6);
   pet.x = app.screen.width / 2;
   pet.y = app.screen.height / 2;
   app.stage.addChild(pet);

@@ -1,4 +1,4 @@
-import { Container, Sprite, BaseTexture, Texture, Text, Rectangle } from "pixi.js";
+import { Container, Sprite, Texture, Text, Rectangle } from "pixi.js";
 import type { FederatedPointerEvent } from "pixi.js";
 import type { PetAnimationState } from "@/composables/usePetState";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6,10 +6,12 @@ import pet1Sprite from "@/assets/pet1.png";
 import pet2Sprite from "@/assets/pet2.png";
 import pet3Sprite from "@/assets/pet3.png";
 import pet4Sprite from "@/assets/pet4.png";
+import pet5Sprite from "@/assets/pet5.png";
 import { FRAMES_PET1 } from "./frames_pet1";
 import { FRAMES_PET2 } from "./frames_pet2";
 import { FRAMES_PET3 } from "./frames_pet3";
 import { FRAMES_PET4 } from "./frames_pet4";
+import { FRAMES_PET5 } from "./frames_pet5";
 
 interface FrameData {
   x: number;
@@ -18,7 +20,7 @@ interface FrameData {
   h: number;
 }
 
-const MS_PER_FRAME = 66; // ~15 FPS
+const MS_PER_FRAME = 22; // ~45 FPS
 
 interface SheetConfig {
   key: string;
@@ -31,11 +33,8 @@ const SHEETS: SheetConfig[] = [
   { key: "pet2", src: pet2Sprite, frames: FRAMES_PET2 },
   { key: "pet3", src: pet3Sprite, frames: FRAMES_PET3 },
   { key: "pet4", src: pet4Sprite, frames: FRAMES_PET4 },
+  { key: "pet5", src: pet5Sprite, frames: FRAMES_PET5 },
 ];
-
-// Largest frame dimensions across all sprite sheets
-const BUF_W = Math.max(...SHEETS.flatMap((s) => s.frames.map((f) => f.w)));
-const BUF_H = Math.max(...SHEETS.flatMap((s) => s.frames.map((f) => f.h)));
 
 export class Pet extends Container {
   private sprite: Sprite;
@@ -47,30 +46,20 @@ export class Pet extends Container {
   private ready = false;
   private pendingScale = 0;
 
-  // Multi-sheet support
-  private sheetImages = new Map<string, HTMLImageElement>();
+  // Multi-sheet support: pre-cropped PIXI textures
+  private preparedTextures = new Map<string, Texture[]>();
+  private currentTextures: Texture[] = [];
   private currentFrames: FrameData[] = FRAMES_PET1;
-  private currentSheetImg: HTMLImageElement | null = null;
   private contentHeight = 0;
 
   // One-shot animation state
   private playingOneShot = false;
-
-  // Single-frame buffer (canvas → BaseTexture, updated per frame)
-  private bufferCanvas: HTMLCanvasElement;
-  private bufferCtx: CanvasRenderingContext2D;
-  private bufferBaseTex!: BaseTexture;
+  private petCycleIndex = 0;
 
   constructor(name: string) {
     super();
 
-    // Shared frame buffer (sized for the largest frame across all sheets)
-    this.bufferCanvas = document.createElement("canvas");
-    this.bufferCanvas.width = BUF_W;
-    this.bufferCanvas.height = BUF_H;
-    this.bufferCtx = this.bufferCanvas.getContext("2d")!;
-
-    // Placeholder; real texture created once the default sheet loads
+    // Placeholder; real texture assigned once the default sheet loads
     this.sprite = new Sprite(Texture.WHITE);
     this.sprite.anchor.set(0.5);
     this.addChild(this.sprite);
@@ -100,16 +89,25 @@ export class Pet extends Container {
   }
 
   private onSheetLoaded(key: string, img: HTMLImageElement, frames: FrameData[]): void {
-    this.sheetImages.set(key, img);
+    // Extract each frame into its own small canvas → PIXI Texture.
+    // This avoids uploading the full (very tall) sprite sheet to the GPU,
+    // which would exceed WebGL max texture size on most hardware.
+    const textures = frames.map((f) => {
+      const c = document.createElement("canvas");
+      c.width = f.w;
+      c.height = f.h;
+      const ctx = c.getContext("2d")!;
+      ctx.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+      return Texture.from(c);
+    });
+    this.preparedTextures.set(key, textures);
 
     if (key === "pet1") {
       // Initialize rendering with the first sheet
-      this.currentSheetImg = img;
+      this.currentTextures = textures;
       this.currentFrames = frames;
       this.contentHeight = Math.max(...frames.map((f) => f.h));
-      this.bufferBaseTex = BaseTexture.from(this.bufferCanvas);
-      this.sprite.texture = new Texture(this.bufferBaseTex);
-      this.drawFrame(0);
+      this.sprite.texture = textures[0];
       this.ready = true;
       if (this.pendingScale > 0) {
         this.applyScale(this.pendingScale);
@@ -119,16 +117,8 @@ export class Pet extends Container {
   }
 
   private drawFrame(index: number): void {
-    const img = this.currentSheetImg;
-    if (!img) return;
-    const f = this.currentFrames[index];
-    if (!f) return;
-    this.bufferCtx.clearRect(0, 0, BUF_W, BUF_H);
-    // Center frame content within the buffer so anchor(0.5) keeps it visually centered
-    const ox = (BUF_W - f.w) / 2;
-    const oy = (BUF_H - f.h) / 2;
-    this.bufferCtx.drawImage(img, f.x, f.y, f.w, f.h, ox, oy, f.w, f.h);
-    this.bufferBaseTex.update();
+    const tex = this.currentTextures[index];
+    if (tex) this.sprite.texture = tex;
   }
 
   /** Scale only the sprite, keeping the label at readable size */
@@ -157,18 +147,18 @@ export class Pet extends Container {
 
   update(dt: number): void {
     // Advance animation frame
-    if (this.ready && this.currentSheetImg) {
+    if (this.ready) {
       this.frameTimer += dt;
       let frameChanged = false;
 
       if (this.playingOneShot) {
         // Play through once, stop at the last frame
-        while (this.frameTimer >= MS_PER_FRAME && this.frameIndex < this.currentFrames.length) {
+        while (this.frameTimer >= MS_PER_FRAME && this.frameIndex < this.currentTextures.length) {
           this.frameTimer -= MS_PER_FRAME;
           this.frameIndex++;
           frameChanged = true;
         }
-        if (this.frameIndex >= this.currentFrames.length) {
+        if (this.frameIndex >= this.currentTextures.length) {
           // Animation complete — revert to looping animation on pet1
           this.playingOneShot = false;
           this.switchSheet("pet1");
@@ -180,7 +170,7 @@ export class Pet extends Container {
         // Normal looping animation
         while (this.frameTimer >= MS_PER_FRAME) {
           this.frameTimer -= MS_PER_FRAME;
-          this.frameIndex = (this.frameIndex + 1) % this.currentFrames.length;
+          this.frameIndex = (this.frameIndex + 1) % this.currentTextures.length;
           frameChanged = true;
         }
       }
@@ -208,11 +198,11 @@ export class Pet extends Container {
     }
   }
 
-  /** Switch the active sprite sheet by key ("default" | "pet1" | "pet2" | "pet3" | "pet4") */
+  /** Switch the active sprite sheet by key ("pet1" | "pet2" | "pet3" | "pet4" | "pet5") */
   private switchSheet(key: string): void {
-    const img = this.sheetImages.get(key);
-    if (!img) return;
-    this.currentSheetImg = img;
+    const texArr = this.preparedTextures.get(key);
+    if (!texArr) return;
+    this.currentTextures = texArr;
     this.currentFrames = this.getFramesForKey(key);
     this.contentHeight = Math.max(...this.currentFrames.map((f) => f.h));
   }
@@ -223,16 +213,19 @@ export class Pet extends Container {
       case "pet2": return FRAMES_PET2;
       case "pet3": return FRAMES_PET3;
       case "pet4": return FRAMES_PET4;
+      case "pet5": return FRAMES_PET5;
       default: return FRAMES_PET1;
     }
   }
 
-  /** Randomly pick one of the four pet animations and play it once */
-  private playRandomPet(): void {
-    const petKeys = ["pet1", "pet2", "pet3", "pet4"];
-    const pick = petKeys[Math.floor(Math.random() * petKeys.length)];
-    const img = this.sheetImages.get(pick);
-    if (!img) return; // sheet not yet loaded
+  /** Pick the next pet animation in sequence (1→2→3→4→5→1) and play it once */
+  private playNextPet(): void {
+    const petKeys = ["pet1", "pet2", "pet3", "pet4", "pet5"];
+    const pick = petKeys[this.petCycleIndex];
+    const texArr = this.preparedTextures.get(pick);
+    if (!texArr) return; // sheet not yet loaded
+
+    this.petCycleIndex = (this.petCycleIndex + 1) % petKeys.length;
 
     this.playingOneShot = true;
     this.switchSheet(pick);
@@ -243,7 +236,7 @@ export class Pet extends Container {
   // ---- Pointer events ----
 
   private onPointerDown(_e: FederatedPointerEvent): void {
-    this.playRandomPet();
+    this.playNextPet();
     getCurrentWindow().startDragging().catch(console.error);
   }
 

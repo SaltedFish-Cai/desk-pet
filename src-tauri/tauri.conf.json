@@ -15,6 +15,8 @@
       {
         "label": "main",
         "title": "My Cute Cat",
+        "x": 100,
+        "y": 100,
         "width": 200,
         "height": 200,
         "resizable": false,

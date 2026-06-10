@@ -6,6 +6,10 @@ fn get_pet_position() -> Result<(f64, f64), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![get_pet_position])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
